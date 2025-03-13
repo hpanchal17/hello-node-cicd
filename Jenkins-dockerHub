@@ -1,0 +1,64 @@
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Code Clone') {
+            steps {
+                echo 'Code Clone Stage'
+                git url: 'https://github.com/hpanchal17/hello-node-cicd.git', branch: 'main'
+            }
+        }
+         stage("Code Build & Test"){
+            steps{
+                echo "Code Build Stage"
+                sh "docker build -t hello-node-app ."
+            }
+        }
+         stage("Push To DockerHub"){
+            steps{	
+                withCredentials([usernamePassword(
+                    credentialsId:"dockerHubCreds",
+                    usernameVariable:"dockerHubUser", 
+                    passwordVariable:"dockerHubPass")]){
+                sh 'echo $dockerHubPass | docker login -u $dockerHubUser --password-stdin'
+                sh "docker image tag hello-node-app:latest ${env.dockerHubUser}/hello-node-app:latest"
+                sh "docker push ${env.dockerHubUser}/hello-node-app:latest"
+                }
+            }
+        }
+        stage("SSH to Target EC2") {
+   steps {
+        script {
+            def remote = "ec2-user@172.31.39.114"
+            
+            // Execute deployment commands on EC2
+            sh """
+                ssh -o StrictHostKeyChecking=no $remote << 'EOF'
+                
+                echo "Connected to EC2 Instance"
+
+                # Stop and remove the old container
+                CONTAINER_ID=\$(docker ps -q --filter "ancestor=hp171100/hello-node-app")
+                if [ ! -z "\$CONTAINER_ID" ]; then
+                    echo "Stopping and removing old container"
+                    docker stop \$CONTAINER_ID
+                    docker rm \$CONTAINER_ID
+                fi
+
+                # Pull the latest image
+                docker pull hp171100/hello-node-app:latest
+                
+                # Run the container
+                docker run -d -p 8000:8000 hp171100/hello-node-app:latest
+                
+                echo "Deployment completed successfully"
+
+                
+            """
+        }
+    }
+}
+
+    }
+}
