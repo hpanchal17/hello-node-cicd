@@ -1,0 +1,94 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_ACCOUNT_ID = "490004653145"  
+        AWS_REGION = "eu-north-1"  
+        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/hello-node-app"
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                echo 'Cloning source code...'
+                git url: 'https://github.com/hpanchal17/hello-node-cicd.git', branch: 'main'
+            }
+        }
+        
+        stage('Build & Test Application') {
+            steps {
+                echo 'Building Docker image...'
+                sh 'docker build -t hello-node-app .'
+            }
+        }
+        
+        stage('Authenticate with AWS ECR') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'awsCreds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh """
+                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
+                        echo "Successfully authenticated with AWS ECR"
+                    """
+                }
+            }
+        }
+
+        stage('Tag & Push Image to ECR') {
+            steps {
+                echo 'Tagging and pushing Docker image to AWS ECR...'
+                sh """
+                    docker tag hello-node-app:latest ${ECR_REPO}:latest
+                    docker push ${ECR_REPO}:latest
+                    echo "Image successfully pushed to AWS ECR"
+                """
+            }
+        }   
+
+        stage('Deploy to EC2') {
+    steps {
+        script {
+            def remote = "ec2-user@172.31.39.114"
+            
+            echo 'Deploying application to EC2 instance...'
+
+            withCredentials([usernamePassword(credentialsId: 'awsCreds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                sh """
+                    ssh -o StrictHostKeyChecking=no $remote << 'EOF'
+                    echo "Connected to EC2"
+
+                    # Set AWS credentials inside EC2 session
+                    export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                    export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+
+                    # Authenticate EC2 instance with AWS ECR
+                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
+                    echo "EC2 instance successfully connected to ECR"
+
+                    # Stop and remove old container if running
+                    OLD_CONTAINER_ID=\$(docker ps -q --filter "ancestor=${ECR_REPO}:latest")
+                    if [ -n "\$OLD_CONTAINER_ID" ]; then
+                        echo "Stopping and removing old container..."
+                        docker stop \$OLD_CONTAINER_ID && docker rm \$OLD_CONTAINER_ID
+                    else
+                        echo "No running container found for ${ECR_REPO}:latest"
+                    fi
+
+                    # Pull latest image and start container
+                    echo "Pulling latest image from AWS ECR..."
+                    docker pull ${ECR_REPO}:latest
+
+                    echo "Starting new container..."
+                    docker run -d -p 8000:8000 ${ECR_REPO}:latest
+
+                    echo "Deployment completed successfully"
+                    
+                """
+            }
+        }
+    }
+}
+
+    }
+}
