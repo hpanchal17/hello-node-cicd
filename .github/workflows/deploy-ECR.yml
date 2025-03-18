@@ -9,7 +9,6 @@ env:
   AWS_REGION: "eu-north-1"
   AWS_ACCOUNT_ID: "490004653145"
   ECR_REPO: "hello-node-app"
-  IMAGE_NAME: "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}"
   CONTAINER_PORT: 8000
   HOST_PORT: 8000
 
@@ -34,22 +33,26 @@ jobs:
 
       - name: Login to AWS ECR
         run: |
+          IMAGE_NAME="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}"
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $IMAGE_NAME
 
       - name: Build Docker Image
         run: |
+          IMAGE_NAME="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}"
           docker build -t $ECR_REPO .
           docker tag $ECR_REPO:latest $IMAGE_NAME:latest
 
       - name: Push Docker Image to AWS ECR
         run: |
+          IMAGE_NAME="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}"
           docker push $IMAGE_NAME:latest
 
       - name: Deploy to EC2
         run: |
+          IMAGE_NAME="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}"
           echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
           chmod 600 private_key.pem
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
             
             echo "Connected to EC2"
 
@@ -57,10 +60,10 @@ jobs:
             aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $IMAGE_NAME
 
             # Stop and remove old container
-            OLD_CONTAINER_ID=$(docker ps -q --filter "ancestor=$IMAGE_NAME:latest")
-            if [ -n "$OLD_CONTAINER_ID" ]; then
+            OLD_CONTAINER_ID=\$(docker ps -q --filter "ancestor=$IMAGE_NAME:latest")
+            if [ -n "\$OLD_CONTAINER_ID" ]; then
                 echo "Stopping and removing old container..."
-                docker stop $OLD_CONTAINER_ID && docker rm $OLD_CONTAINER_ID
+                docker stop \$OLD_CONTAINER_ID && docker rm \$OLD_CONTAINER_ID
             fi
 
             # Pull latest image
@@ -70,7 +73,7 @@ jobs:
             docker run -d -p $HOST_PORT:$CONTAINER_PORT $IMAGE_NAME:latest
 
             echo "Deployment Completed Successfully!"
-          
+        
 
       - name: Cleanup
         run: rm -f private_key.pem
