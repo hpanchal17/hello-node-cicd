@@ -6,7 +6,7 @@ const port = 8000;  // Setting an port for this application
   
 
 app.get('/', (req, res) => {
-    res.send('Welcome to CICD Pipeline using Jenkins with node with changes & Pushing ECR and Pulling ECR using github action! and deploy in ECR 1');
+    res.send('Welcome to CICD Pipeline using Jenkins with node with changes & Pushing ECR and Pulling ECR using github action! and deploy in ECR 2');
 
 });
 
