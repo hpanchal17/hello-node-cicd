@@ -3,7 +3,7 @@ name: CI/CD Pipeline - Build & Deploy to EC2
 on:
   push:
     branches:
-      - main  # Runs when code is pushed to main
+      - main  
 
 env:
   AWS_REGION: eu-north-1
@@ -52,23 +52,26 @@ jobs:
           script: |
             echo "Connected to EC2"
 
-            # Authenticate EC2 with AWS ECR
+            
+            export AWS_REGION="eu-north-1"
+            export ECR_REPO="${{ env.ECR_REPO }}"
+
+            echo "Authenticating with AWS ECR..."
             aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
 
-            # Stop and remove old container if running
-            OLD_CONTAINER_ID=$(docker ps -q --filter "ancestor=$ECR_REPO:latest")
-            if [ -n "$OLD_CONTAINER_ID" ]; then
-                echo "Stopping and removing old container..."
-                docker stop $OLD_CONTAINER_ID && docker rm $OLD_CONTAINER_ID
+            echo "Stopping old container (if running)..."
+            CONTAINER_ID=$(docker ps -q --filter "ancestor=$ECR_REPO:latest")
+            if [ ! -z "$CONTAINER_ID" ]; then
+                docker stop $CONTAINER_ID
+                docker rm $CONTAINER_ID
             else
-                echo "No running container found for $ECR_REPO:latest"
+                echo "No running container found."
             fi
 
-            # Pull latest image and start new container
             echo "Pulling latest image from AWS ECR..."
             docker pull $ECR_REPO:latest
 
             echo "Starting new container..."
-            docker run -d -p 8000:8000 $ECR_REPO:latest
+            docker run -d -p 8000:8000 --name hello-node-app $ECR_REPO:latest
 
-            echo "Deployment completed successfully"
+            echo "Deployment completed successfully!"
