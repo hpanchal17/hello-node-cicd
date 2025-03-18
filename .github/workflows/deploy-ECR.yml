@@ -1,0 +1,74 @@
+name: CI/CD Pipeline - Build & Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main  # Runs when code is pushed to main
+
+env:
+  AWS_REGION: eu-north-1
+  AWS_ACCOUNT_ID: "490004653145"
+  ECR_REPO: "490004653145.dkr.ecr.eu-north-1.amazonaws.com/hello-node-app"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to AWS ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+
+      - name: Build Docker Image
+        run: |
+          docker build -t hello-node-app .
+          docker tag hello-node-app:latest $ECR_REPO:latest
+
+      - name: Push Image to AWS ECR
+        run: |
+          docker push $ECR_REPO:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "Connected to EC2"
+
+            # Authenticate EC2 with AWS ECR
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+
+            # Stop and remove old container if running
+            OLD_CONTAINER_ID=$(docker ps -q --filter "ancestor=$ECR_REPO:latest")
+            if [ -n "$OLD_CONTAINER_ID" ]; then
+                echo "Stopping and removing old container..."
+                docker stop $OLD_CONTAINER_ID && docker rm $OLD_CONTAINER_ID
+            else
+                echo "No running container found for $ECR_REPO:latest"
+            fi
+
+            # Pull latest image and start new container
+            echo "Pulling latest image from AWS ECR..."
+            docker pull $ECR_REPO:latest
+
+            echo "Starting new container..."
+            docker run -d -p 8000:8000 $ECR_REPO:latest
+
+            echo "Deployment completed successfully"
