@@ -67,6 +67,10 @@ jobs:
             else
                 echo "No running container found."
             fi
+            
+            echo "Removing old images to free space..."
+            docker image prune -af
+
 
             echo "Pulling latest image from AWS ECR..."
             docker pull $ECR_REPO:latest
